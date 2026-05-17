@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api.routes import admin, client, forms, jobs, upload
+from app.api.routes import admin, anaplan, client, forms, jobs, upload
 from app.core.config import settings
 from app.core.db import engine
 from app.models.base import Base
@@ -60,6 +60,7 @@ app.include_router(admin.router)
 app.include_router(upload.router)
 app.include_router(client.router)
 app.include_router(forms.router)
+app.include_router(anaplan.router)
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 

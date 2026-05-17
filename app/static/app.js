@@ -1,5 +1,7 @@
-let API_KEY    = "";
-let JOB_SOURCE = "anaplan"; // "anaplan" | "upload"
+let API_KEY         = "";
+let JOB_SOURCE      = "anaplan"; // "anaplan" | "upload" | "grid" | "anaplan-form"
+let ACTIVE_FORM_ID  = "";        // form_id for the currently selected grid/anaplan-form
+let ADD_FORM_TAB    = "anaplan"; // "anaplan" | "excel"
 
 const $ = id => document.getElementById(id);
 
@@ -9,7 +11,7 @@ function setStatus(id, msg, type = "") {
   el.className   = "status-msg " + type;
 }
 
-// ── Auth ─────────────────────────────────────────────────────────────────────
+// ── Auth ──────────────────────────────────────────────────────────────────────
 
 async function verifyKey() {
   API_KEY = $("api-key").value.trim();
@@ -19,14 +21,200 @@ async function verifyKey() {
   if (resp.ok) {
     const data = await resp.json();
     setStatus("auth-status", `Authenticated as ${data.company_name}`, "success");
+    show("forms-section");
     show("anaplan-section");
     show("upload-section");
+    await loadForms();
+    await loadAnaplanViews();
+    await loadProfileOptions();
   } else {
     setStatus("auth-status", "Invalid API key", "error");
   }
 }
 
-// ── Anaplan generate ─────────────────────────────────────────────────────────
+// ── Form Picker ───────────────────────────────────────────────────────────────
+
+async function loadForms() {
+  const resp = await apiFetch("/v1/forms");
+  if (!resp.ok) { setStatus("forms-status", "Could not load forms", "error"); return; }
+  const forms = await resp.json();
+  renderFormList(forms);
+}
+
+function renderFormList(forms) {
+  const el = $("form-list");
+  if (!forms.length) {
+    el.innerHTML = '<p class="empty-msg">No forms registered yet. Add one below.</p>';
+    return;
+  }
+  el.innerHTML = forms.map(f => `
+    <div class="form-card" id="fcard-${f.form_id}">
+      <div class="form-card-info">
+        <span class="form-name">${escHtml(f.form_name)}</span>
+        <span class="badge badge-source">${f.form_source === "anaplan" ? "Anaplan" : "Excel"}</span>
+        <span class="badge badge-profile">${escHtml(f.profile_name)}</span>
+      </div>
+      <div class="form-card-actions">
+        ${f.form_source === "anaplan"
+          ? `<button class="btn-sm" onclick="generateFromAnaplanForm('${esc(f.form_id)}')">Generate</button>`
+          : `<button class="btn-sm" onclick="openGridUpload('${esc(f.form_id)}', '${esc(f.form_name)}')">Upload &amp; Generate</button>`
+        }
+        <button class="btn-sm btn-danger-sm" onclick="deleteForm('${esc(f.form_id)}')">Remove</button>
+      </div>
+    </div>
+  `).join("");
+}
+
+async function deleteForm(formId) {
+  if (!confirm("Remove this form config?")) return;
+  const resp = await apiFetch(`/v1/forms/${encodeURIComponent(formId)}`, { method: "DELETE" });
+  if (resp.ok) await loadForms();
+  else setStatus("forms-status", "Delete failed", "error");
+}
+
+// ── Add Form panel ────────────────────────────────────────────────────────────
+
+function toggleAddForm() {
+  const panel = $("add-form-panel");
+  panel.classList.toggle("hidden");
+}
+
+function switchAddTab(tab) {
+  ADD_FORM_TAB = tab;
+  document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+  event.target.classList.add("active");
+  $("tab-anaplan").classList.toggle("hidden", tab !== "anaplan");
+  $("tab-excel").classList.toggle("hidden", tab !== "excel");
+}
+
+async function loadAnaplanViews() {
+  const resp = await apiFetch("/v1/anaplan/views");
+  if (!resp.ok) return;  // Anaplan may not be configured — fail silently
+  const { views } = await resp.json();
+  const sel = $("anaplan-views-select");
+  sel.innerHTML = '<option value="">— select a view —</option>' +
+    views.map(v => `<option value="${esc(v.id)}" data-name="${esc(v.name)}">${escHtml(v.name)}</option>`).join("");
+}
+
+async function loadProfileOptions() {
+  const resp = await apiFetch("/v1/profiles");
+  if (!resp.ok) return;
+  const profiles = await resp.json();
+  const sel = $("anaplan-profile-select");
+  sel.innerHTML = profiles
+    .map(p => `<option value="${esc(p.profile_name)}">${escHtml(p.profile_name)}</option>`)
+    .join("");
+}
+
+async function registerAnaplanView() {
+  const sel      = $("anaplan-views-select");
+  const viewId   = sel.value;
+  const viewName = sel.options[sel.selectedIndex]?.dataset.name || viewId;
+  const profile  = $("anaplan-profile-select").value;
+
+  if (!viewId) { setStatus("add-form-status", "Select a view first", "error"); return; }
+
+  setStatus("add-form-status", "Registering...");
+  const resp = await apiFetch("/v1/forms", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      form_id:      viewId,
+      form_name:    viewName,
+      form_source:  "anaplan",
+      profile_name: profile,
+      view_id:      viewId,
+    }),
+  });
+
+  if (resp.ok) {
+    setStatus("add-form-status", `Registered: ${viewName}`, "success");
+    await loadForms();
+  } else {
+    setStatus("add-form-status", await errText(resp), "error");
+  }
+}
+
+async function uploadFormConfig() {
+  const file = $("form-config-file").files[0];
+  if (!file) return;
+  setStatus("form-config-status", "Parsing form config...");
+
+  // Parse the Form Setup Excel client-side is complex — instead, parse server-side.
+  // For Phase 3, we send the raw file to a parse-and-register endpoint.
+  // That endpoint is POST /v1/forms/upload-config (future). For now show a message.
+  setStatus("form-config-status",
+    "Use the API directly to register a form config, or use the Anaplan tab to discover views.",
+    "error");
+}
+
+// ── Anaplan-source form generation ────────────────────────────────────────────
+
+async function generateFromAnaplanForm(formId) {
+  ACTIVE_FORM_ID = formId;
+  JOB_SOURCE     = "anaplan-form";
+  setStatus("forms-status", "Reading from Anaplan and generating commentary...");
+
+  const resp = await apiFetch("/v1/anaplan/generate-form", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ form_id: formId }),
+  });
+
+  if (!resp.ok) {
+    setStatus("forms-status", await errText(resp), "error");
+    return;
+  }
+
+  const data = await resp.json();
+  setStatus("forms-status",
+    `Generated ${data.generated} rows · skipped ${data.skipped}`, "success");
+  await loadPreview();
+}
+
+// ── Excel grid upload (for Excel-source forms) ────────────────────────────────
+
+function openGridUpload(formId, formName) {
+  ACTIVE_FORM_ID = formId;
+  $("grid-form-name").textContent = formName;
+  show("grid-upload-section");
+  hide("forms-section");
+  $("grid-file").value = "";
+  setStatus("grid-status", "");
+}
+
+function cancelGridUpload() {
+  hide("grid-upload-section");
+  show("forms-section");
+}
+
+async function uploadGrid() {
+  const file = $("grid-file").files[0];
+  if (!file) return;
+  setStatus("grid-status", `Uploading ${file.name}...`);
+
+  const form = new FormData();
+  form.append("file", file);
+  form.append("form_id", ACTIVE_FORM_ID);
+
+  const resp = await fetch("/v1/upload/grid-generate", {
+    method:  "POST",
+    headers: { "X-API-Key": API_KEY },
+    body:    form,
+  });
+
+  if (!resp.ok) { setStatus("grid-status", await errText(resp), "error"); return; }
+
+  const data = await resp.json();
+  setStatus("grid-status",
+    `Generated ${data.generated} rows · skipped ${data.skipped}`, "success");
+  JOB_SOURCE = "grid";
+  hide("grid-upload-section");
+  show("forms-section");
+  await loadPreview();
+}
+
+// ── Legacy: Anaplan module generate ──────────────────────────────────────────
 
 async function triggerGenerate() {
   setStatus("generate-status", "Queuing job...");
@@ -57,7 +245,7 @@ async function pollJob(job_id) {
   }, 3000);
 }
 
-// ── Excel upload ─────────────────────────────────────────────────────────────
+// ── Legacy: flat Excel upload ─────────────────────────────────────────────────
 
 async function uploadFile() {
   const file = $("excel-file").files[0];
@@ -68,9 +256,9 @@ async function uploadFile() {
   form.append("file", file);
 
   const resp = await fetch("/v1/upload/generate", {
-    method: "POST",
+    method:  "POST",
     headers: { "X-API-Key": API_KEY },
-    body: form,
+    body:    form,
   });
 
   if (!resp.ok) { setStatus("upload-status", await errText(resp), "error"); return; }
@@ -85,16 +273,12 @@ async function uploadFile() {
 // ── Preview ───────────────────────────────────────────────────────────────────
 
 async function loadPreview() {
-  const endpoint = JOB_SOURCE === "anaplan" ? "/v1/jobs/preview" : "/v1/upload/preview/export";
-
-  // For Anaplan, we get JSON. For upload the export endpoint returns Excel binary.
-  // Both sources share the same Redis key, so just use /v1/jobs/preview for JSON.
   const resp = await apiFetch("/v1/jobs/preview");
-  if (!resp.ok) { return; }
-
+  if (!resp.ok) return;
   const preview = await resp.json();
   renderPreview(preview);
   show("preview-section");
+  $("preview-section").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function renderPreview(preview) {
@@ -115,7 +299,7 @@ function renderPreview(preview) {
 
   rows.forEach(r => {
     html += "<tr>";
-    cols.forEach((c, i) => {
+    cols.forEach(c => {
       let val = r[c] ?? "";
       if (c === "variance_pct") val = (val * 100).toFixed(1) + "%";
       if (c === "actual" || c === "budget" || c === "variance_dollars")
@@ -127,11 +311,11 @@ function renderPreview(preview) {
   });
 
   if (skipped.length) {
-    html += `<tr><td colspan="${cols.length}" class="skipped"><strong>Skipped (below materiality or favorable)</strong></td></tr>`;
+    html += `<tr><td colspan="${cols.length}" class="skipped-hdr"><strong>Skipped</strong></td></tr>`;
     skipped.forEach(s => {
-      html += `<tr class="skipped-row"><td>${escHtml(s.account)}</td>`;
-      html += `<td>${escHtml(s.cost_center)}</td><td>${escHtml(s.time_period)}</td>`;
-      html += `<td colspan="${cols.length - 3}" class="skipped">${escHtml(s.reason)}</td></tr>`;
+      html += `<tr class="skipped-row"><td>${escHtml(s.account || "")}</td>`;
+      html += `<td>${escHtml(s.cost_center || "")}</td><td>${escHtml(s.time_period || "")}</td>`;
+      html += `<td colspan="${cols.length - 3}" class="skipped">${escHtml(s.reason || "")}</td></tr>`;
     });
   }
 
@@ -139,25 +323,17 @@ function renderPreview(preview) {
   $("preview-table-wrap").innerHTML = html;
 }
 
-// ── Actions ───────────────────────────────────────────────────────────────────
+// ── Preview actions ───────────────────────────────────────────────────────────
 
 async function exportPreview() {
-  window.location = JOB_SOURCE === "anaplan"
+  const path = JOB_SOURCE === "anaplan"
     ? "/v1/jobs/preview/export"
     : "/v1/upload/preview/export";
-  // browser will prompt download — headers carry API key via URL trick not possible,
-  // so open a fetch + blob download instead
-  const resp = await apiFetch(
-    JOB_SOURCE === "anaplan" ? "/v1/jobs/preview/export" : "/v1/upload/preview/export"
-  );
+
+  const resp = await apiFetch(path);
   if (!resp.ok) return;
   const blob = await resp.blob();
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement("a");
-  a.href     = url;
-  a.download = "commentary_preview.xlsx";
-  a.click();
-  URL.revokeObjectURL(url);
+  _download(blob, "commentary_preview.xlsx");
 }
 
 async function rejectPreview() {
@@ -165,7 +341,8 @@ async function rejectPreview() {
   if (resp.ok) {
     hide("preview-section");
     setStatus("generate-status", "Preview discarded.");
-    setStatus("upload-status", "Preview discarded.");
+    setStatus("upload-status",   "Preview discarded.");
+    setStatus("forms-status",    "Preview discarded.");
   }
 }
 
@@ -173,29 +350,22 @@ async function approvePreview() {
   setStatus("approve-status", "Approving...");
 
   if (JOB_SOURCE === "upload") {
-    // For upload, user must re-upload original to receive annotated file
     const file = $("excel-file").files[0];
     if (!file) {
-      setStatus("approve-status", "Re-select your original file to download the annotated version.", "error");
+      setStatus("approve-status",
+        "Re-select your original file to download the annotated version.", "error");
       return;
     }
     const form = new FormData();
     form.append("file", file);
     const resp = await fetch("/v1/upload/approve-download", {
-      method: "POST",
+      method:  "POST",
       headers: { "X-API-Key": API_KEY },
-      body: form,
+      body:    form,
     });
     if (!resp.ok) { setStatus("approve-status", await errText(resp), "error"); return; }
-    const blob = await resp.blob();
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement("a");
-    a.href     = url;
-    a.download = "commentary_output.xlsx";
-    a.click();
-    URL.revokeObjectURL(url);
+    _download(await resp.blob(), "commentary_output.xlsx");
     hide("preview-section");
-    setStatus("approve-status", "Downloaded.", "success");
     return;
   }
 
@@ -213,6 +383,7 @@ async function approvePreview() {
       clearInterval(interval);
       hide("preview-section");
       setStatus("generate-status", "Commentary written to Anaplan.", "success");
+      setStatus("forms-status",    "Commentary written to Anaplan.", "success");
     } else if (d.status === "failed") {
       clearInterval(interval);
       setStatus("approve-status", "Write failed. Check logs.", "error");
@@ -235,8 +406,25 @@ async function errText(resp) {
 }
 
 function escHtml(str) {
-  return str.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function esc(str) {
+  return String(str).replace(/'/g, "\\'").replace(/"/g, "&quot;");
 }
 
 function show(id) { $(id).classList.remove("hidden"); }
 function hide(id) { $(id).classList.add("hidden"); }
+
+function _download(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a   = document.createElement("a");
+  a.href    = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
