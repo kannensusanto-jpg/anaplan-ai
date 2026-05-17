@@ -1,4 +1,6 @@
+import asyncio
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 
 from alembic import command as alembic_command
@@ -17,11 +19,17 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def _run_migrations() -> None:
+    cfg = AlembicConfig("alembic.ini")
+    alembic_command.upgrade(cfg, "head")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Running Alembic migrations...")
-    cfg = AlembicConfig("alembic.ini")
-    alembic_command.upgrade(cfg, "head")
+    loop = asyncio.get_running_loop()
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        await loop.run_in_executor(pool, _run_migrations)
     logger.info("Migrations complete")
 
     app.state.arq = await create_pool(RedisSettings.from_dsn(settings.REDIS_URL))
@@ -53,8 +61,6 @@ app.include_router(upload.router)
 app.include_router(client.router)
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
-
-templates = Jinja2Templates(directory="app/templates")
 
 
 @app.get("/health")
