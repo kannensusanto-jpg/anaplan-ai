@@ -20,11 +20,11 @@ class Tenant(Base):
     webhook_url        = Column(String, nullable=True)
 
     @classmethod
-    async def get_by_key_hash(cls, key_hash: str, db: AsyncSession) -> "Tenant | None":
+    async def get_by_key_hash(cls, db: AsyncSession, key_hash: str) -> "Tenant | None":
         result = await db.execute(select(cls).where(cls.api_key_hash == key_hash))
         return result.scalar_one_or_none()
 
     @classmethod
-    async def get_by_client_id(cls, client_id: str, db: AsyncSession) -> "Tenant | None":
+    async def get_by_client_id(cls, db: AsyncSession, client_id: str) -> "Tenant | None":
         result = await db.execute(select(cls).where(cls.client_id == client_id))
         return result.scalar_one_or_none()
