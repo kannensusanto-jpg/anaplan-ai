@@ -7,12 +7,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api.routes import admin, client, jobs, upload
+from app.api.routes import admin, client, forms, jobs, upload
 from app.core.config import settings
 from app.core.db import engine
 from app.models.base import Base
-import app.models.tenant  # noqa: F401
-import app.models.usage   # noqa: F401
+import app.models.form_config  # noqa: F401
+import app.models.tenant       # noqa: F401
+import app.models.usage        # noqa: F401
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -24,6 +25,12 @@ async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     logger.info("Tables ready")
+
+    from app.services.config_profiles import seed_default_profiles
+    from app.core.db import AsyncSessionLocal
+    async with AsyncSessionLocal() as db:
+        await seed_default_profiles(db)
+    logger.info("Default profiles seeded")
 
     app.state.arq = await create_pool(RedisSettings.from_dsn(settings.REDIS_URL))
     logger.info("ARQ pool ready")
@@ -52,6 +59,7 @@ app.include_router(jobs.router)
 app.include_router(admin.router)
 app.include_router(upload.router)
 app.include_router(client.router)
+app.include_router(forms.router)
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
