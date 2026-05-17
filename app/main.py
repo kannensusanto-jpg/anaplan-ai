@@ -1,10 +1,6 @@
-import asyncio
 import logging
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 
-from alembic import command as alembic_command
-from alembic.config import Config as AlembicConfig
 from arq.connections import RedisSettings, create_pool
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,23 +10,20 @@ from fastapi.staticfiles import StaticFiles
 from app.api.routes import admin, client, jobs, upload
 from app.core.config import settings
 from app.core.db import engine
+from app.models.base import Base
+import app.models.tenant  # noqa: F401
+import app.models.usage   # noqa: F401
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def _run_migrations() -> None:
-    cfg = AlembicConfig("alembic.ini")
-    alembic_command.upgrade(cfg, "head")
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Running Alembic migrations...")
-    loop = asyncio.get_running_loop()
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        await loop.run_in_executor(pool, _run_migrations)
-    logger.info("Migrations complete")
+    logger.info("Creating database tables...")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    logger.info("Tables ready")
 
     app.state.arq = await create_pool(RedisSettings.from_dsn(settings.REDIS_URL))
     logger.info("ARQ pool ready")
