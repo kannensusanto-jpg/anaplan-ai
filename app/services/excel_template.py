@@ -29,9 +29,17 @@ def _build_data_sheet(wb: openpyxl.Workbook) -> None:
         cell.font      = header_font
         cell.alignment = Alignment(wrap_text=True)
     samples = [
-        ["Salaries",      "Dept A", "FY26 Q1",   980_000, 1_000_000,   975_000, "expense", "Total Payroll", ""],
-        ["Benefits",      "Dept A", "FY26 Q1",   295_000,   300_000,   290_000, "expense", "Total Payroll", ""],
-        ["Total Payroll", "Dept A", "FY26 Q1", 1_275_000, 1_300_000, 1_265_000, "expense", "",              ""],
+        # Account               Cost Ctr   Period     Actual      Budget    Prior Act  Acct Type   Parent          Human Commentary
+        ["Salaries",            "Dept A",  "FY26 Q1", 1_150_000, 1_000_000,  975_000, "expense",  "Total Payroll", "New hires onboarded in Jan"],
+        ["Benefits",            "Dept A",  "FY26 Q1",   380_000,   300_000,  290_000, "expense",  "Total Payroll", ""],
+        ["Total Payroll",       "Dept A",  "FY26 Q1", 1_530_000, 1_300_000, 1_265_000, "expense", "",              ""],
+        ["Travel & Expense",    "Dept A",  "FY26 Q1",   112_000,    60_000,   55_000, "expense",  "Total OpEx",    "Q1 sales kickoff event"],
+        ["Software Licenses",   "Dept A",  "FY26 Q1",   210_000,   175_000,  170_000, "expense",  "Total OpEx",    ""],
+        ["Consulting Fees",     "Dept A",  "FY26 Q1",    42_000,    50_000,   48_000, "expense",  "Total OpEx",    ""],
+        ["Total OpEx",          "Dept A",  "FY26 Q1",   364_000,   285_000,  273_000, "expense",  "",              ""],
+        ["Product Revenue",     "Dept A",  "FY26 Q1", 4_250_000, 4_000_000, 3_800_000, "revenue", "Total Revenue", ""],
+        ["Services Revenue",    "Dept A",  "FY26 Q1",   680_000,   750_000,  710_000, "revenue",  "Total Revenue", "Two enterprise deals pushed to Q2"],
+        ["Total Revenue",       "Dept A",  "FY26 Q1", 4_930_000, 4_750_000, 4_510_000, "revenue", "",             ""],
     ]
     for row in samples:
         ws.append(row)
