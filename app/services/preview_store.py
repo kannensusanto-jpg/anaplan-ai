@@ -16,9 +16,11 @@ async def save_preview(
     rows: list[dict],
     skipped: list[tuple[dict, str]],
     usage: dict,
+    form_id: str | None = None,
 ) -> None:
     payload = {
         "job_id":       job_id,
+        "form_id":      form_id,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "rows": [
             {

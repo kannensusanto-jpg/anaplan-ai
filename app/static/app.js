@@ -326,14 +326,10 @@ function renderPreview(preview) {
 // ── Preview actions ───────────────────────────────────────────────────────────
 
 async function exportPreview() {
-  const path = JOB_SOURCE === "anaplan"
-    ? "/v1/jobs/preview/export"
-    : "/v1/upload/preview/export";
-
-  const resp = await apiFetch(path);
+  // All sources write to the same Redis preview key — one export endpoint works for all.
+  const resp = await apiFetch("/v1/jobs/preview/export");
   if (!resp.ok) return;
-  const blob = await resp.blob();
-  _download(blob, "commentary_preview.xlsx");
+  _download(await resp.blob(), "commentary_preview.xlsx");
 }
 
 async function rejectPreview() {
@@ -349,6 +345,7 @@ async function rejectPreview() {
 async function approvePreview() {
   setStatus("approve-status", "Approving...");
 
+  // ── Flat Excel upload: re-upload original to get annotated file back ──────
   if (JOB_SOURCE === "upload") {
     const file = $("excel-file").files[0];
     if (!file) {
@@ -369,7 +366,22 @@ async function approvePreview() {
     return;
   }
 
-  // Anaplan path: queue write job
+  // ── Form-based (grid upload or Anaplan-form): write back via form config ──
+  if (JOB_SOURCE === "grid" || JOB_SOURCE === "anaplan-form") {
+    const resp = await apiFetch("/v1/forms/approve", { method: "POST" });
+    if (!resp.ok) {
+      const detail = await errText(resp);
+      // If no import_action_id is configured, surface a clear message
+      setStatus("approve-status", detail, "error");
+      return;
+    }
+    hide("preview-section");
+    setStatus("forms-status", "Commentary written to Anaplan.", "success");
+    await loadForms();
+    return;
+  }
+
+  // ── Legacy Anaplan module path: queue write job via ARQ ──────────────────
   const resp = await apiFetch("/v1/jobs/approve", { method: "POST" });
   if (!resp.ok) { setStatus("approve-status", await errText(resp), "error"); return; }
   const { job_id } = await resp.json();
@@ -383,7 +395,6 @@ async function approvePreview() {
       clearInterval(interval);
       hide("preview-section");
       setStatus("generate-status", "Commentary written to Anaplan.", "success");
-      setStatus("forms-status",    "Commentary written to Anaplan.", "success");
     } else if (d.status === "failed") {
       clearInterval(interval);
       setStatus("approve-status", "Write failed. Check logs.", "error");

@@ -136,7 +136,10 @@ async def upload_grid_and_generate(
     ]
 
     job_id = str(uuid.uuid4())
-    await save_preview(tenant.client_id, job_id, rows_with_commentary, filtered.skipped, usage)
+    await save_preview(
+        tenant.client_id, job_id, rows_with_commentary, filtered.skipped, usage,
+        form_id=form_id,
+    )
 
     return {
         "job_id":    job_id,
