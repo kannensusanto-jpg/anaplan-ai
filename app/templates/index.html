@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Anaplan AI Commentary</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <span class="logo">AI Commentary</span>
+      <span class="tag">FP&amp;A · Anaplan</span>
+    </div>
+  </header>
+
+  <main>
+    <!-- API Key input -->
+    <section class="card" id="auth-section">
+      <h2>API Key</h2>
+      <div class="row">
+        <input id="api-key" type="password" placeholder="Paste your API key" autocomplete="off" />
+        <button id="verify-btn" onclick="verifyKey()">Verify</button>
+      </div>
+      <p id="auth-status" class="status-msg"></p>
+    </section>
+
+    <!-- Anaplan workflow -->
+    <section class="card hidden" id="anaplan-section">
+      <h2>Anaplan · Generate Commentary</h2>
+      <p class="sub">Reads your configured Anaplan module, applies materiality rules, and generates AI commentary.</p>
+      <button onclick="triggerGenerate()">Generate</button>
+      <div id="generate-status" class="status-msg"></div>
+    </section>
+
+    <!-- Excel upload workflow -->
+    <section class="card hidden" id="upload-section">
+      <h2>Excel Upload</h2>
+      <p class="sub">No Anaplan integration? Upload the template instead.</p>
+      <div class="row">
+        <a href="/v1/upload/template" class="btn-outline" download>Download Template</a>
+        <label class="btn-outline file-label">
+          Choose File
+          <input type="file" id="excel-file" accept=".xlsx" onchange="uploadFile()" hidden />
+        </label>
+      </div>
+      <div id="upload-status" class="status-msg"></div>
+    </section>
+
+    <!-- Preview panel -->
+    <section class="card hidden" id="preview-section">
+      <h2>Preview</h2>
+      <div id="preview-summary" class="preview-summary"></div>
+      <div id="preview-table-wrap" class="table-wrap"></div>
+      <div class="action-row">
+        <button onclick="exportPreview()">Export to Excel</button>
+        <button class="btn-danger" onclick="rejectPreview()">Discard</button>
+        <button class="btn-success" onclick="approvePreview()">Approve &amp; Write</button>
+      </div>
+      <div id="approve-status" class="status-msg"></div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
