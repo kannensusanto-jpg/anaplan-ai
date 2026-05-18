@@ -57,11 +57,7 @@ async function selectEPM(evt, tool) {
     await loadAnaplanViews();
     await loadForms();
   } else if (tool === "excel") {
-    $("forms-sub").textContent = "Pick a registered Excel form to generate AI commentary.";
-    show("form-template-btn");
-    show("forms-section");
     show("upload-section");
-    await loadForms();
   }
 }
 
