@@ -35,15 +35,11 @@ class AnaplanClient:
 
     def read_view_as_rows(self, form_config) -> tuple[list[dict], dict[str, list[str]]]:
         """
-        Download the export keyed by form_config.view_id and map to standard rows.
-
-        Expects a flat Anaplan CSV export where:
-          - One row per (account, entity, time, version) combination
-          - Column names match dim_account, dim_time, dim_version, dim_entity
-          - A single numeric "value" column (any non-dim column)
-
-        Rows are pivoted: actual_version_member rows supply 'actual';
-        budget_version_member rows supply 'budget'.
+        Export the Anaplan view and return standard rows ready for the generation
+        pipeline.  Dimension roles are auto-detected from column headers and sample
+        values; dimension_roles config overrides detection when supplied.  Every
+        non-role, non-measure column is captured as dim_context so Claude receives
+        the full intersection context.
         """
         raw = self._run_export(form_config.view_id)
         return _map_flat_csv(raw, form_config)
@@ -115,16 +111,31 @@ class AnaplanClient:
         await self._poll_task("imports", import_action_id, task_id)
 
     def _build_csv(self, commentary: dict[str, str], rows: list[dict]) -> bytes:
+        if not rows:
+            return b""
+
+        # Use actual Anaplan dimension names from _dim_roles (set during parsing)
+        sample_roles = rows[0].get("_dim_roles") or {}
+        acc_col    = sample_roles.get("account",    "Account")
+        entity_col = sample_roles.get("entity",     "Cost Centre")
+        time_col   = sample_roles.get("time",       "Time Period")
+        comm_col   = sample_roles.get("commentary", "Commentary")
+
+        # Extra dimension columns present across all rows
+        extra_cols = list(rows[0].get("dim_context", {}).keys())
+
         buf = io.StringIO()
         writer = csv.writer(buf)
-        writer.writerow(["Account", "Cost Center", "Time Period", "Commentary"])
+        writer.writerow([acc_col, entity_col, time_col, *extra_cols, comm_col])
         for row in rows:
             mid = row["member_id"]
             if mid in commentary:
+                extra_vals = [row.get("dim_context", {}).get(c, "") for c in extra_cols]
                 writer.writerow([
                     row["account"],
                     row["cost_center"],
                     row["time_period"],
+                    *extra_vals,
                     commentary[mid],
                 ])
         return buf.getvalue().encode("utf-8")
@@ -169,52 +180,153 @@ class AnaplanClient:
 
 # ── Module-level helpers ──────────────────────────────────────────────────────
 
+_TIME_HINTS     = {"period", "time", "month", "quarter", "year", "week", "date", "fiscal"}
+_VERSION_HINTS  = {"version", "scenario", "type"}
+_ACCOUNT_HINTS  = {"account", "accounts", "line item", "lineitems", "item", "measure", "description"}
+_ENTITY_HINTS   = {"entity", "department", "dept", "cost centre", "cost center",
+                   "org unit", "business unit", "division", "location", "region", "subsidiary"}
+_COMMENT_HINTS  = {"commentary", "comment", "notes", "annotation", "narrative"}
+_VERSION_VALUES = {"actual", "actuals", "budget", "plan", "forecast", "fcast",
+                   "reforecast", "prior year", "ly", "py", "target"}
+_REVENUE_HINTS  = {"revenue", "income", "sales", "turnover", "net revenue"}
+_EXPENSE_HINTS  = {"expense", "cost", "opex", "capex", "spend", "salary", "salaries",
+                   "headcount", "depreciation", "amortization"}
+
+
+def _infer_roles(headers: list[str], samples: list[dict], configured: dict) -> dict:
+    """
+    Return {role: column_name} for account, time, version, entity, commentary.
+    Configured dimension_roles take precedence; heuristics fill any gaps.
+    """
+    roles = {k: v for k, v in configured.items() if v}
+
+    def _match(h: str, hints: set[str]) -> bool:
+        hl = h.lower().strip()
+        return any(hint in hl for hint in hints)
+
+    for h in headers:
+        if "account" not in roles and _match(h, _ACCOUNT_HINTS):
+            roles["account"] = h
+        if "time" not in roles and _match(h, _TIME_HINTS):
+            roles["time"] = h
+        if "version" not in roles and _match(h, _VERSION_HINTS):
+            roles["version"] = h
+        if "entity" not in roles and _match(h, _ENTITY_HINTS):
+            roles["entity"] = h
+        if "commentary" not in roles and _match(h, _COMMENT_HINTS):
+            roles["commentary"] = h
+
+    # Inspect values for version column — if a column's distinct values are
+    # all known version member names, it's the version dimension.
+    if "version" not in roles and samples:
+        for h in headers:
+            if h in roles.values():
+                continue
+            vals = {str(r.get(h, "")).lower().strip() for r in samples[:40] if r.get(h)}
+            if vals and vals <= (_VERSION_VALUES | {""}):
+                roles["version"] = h
+                break
+
+    return roles
+
+
+def _infer_account_type(account_name: str) -> str:
+    al = account_name.lower()
+    if any(h in al for h in _REVENUE_HINTS):
+        return "revenue"
+    return "expense"
+
+
 def _map_flat_csv(raw: list[dict], fc) -> tuple[list[dict], dict[str, list[str]]]:
     """
-    Convert a flat Anaplan export (one row per version member) into the
-    pivoted standard format: one row per (account, entity, time) with
-    both actual and budget values.
+    Convert a flat Anaplan export into one row per dimension intersection with
+    actual + budget pivoted. Auto-detects dimension roles from column headers
+    and values; dimension_roles config takes precedence when supplied.
+
+    Every non-role, non-measure column is captured as dim_context so that
+    the generation pipeline can pass the full intersection to Claude.
     """
-    dr          = fc.dimension_roles or {}
-    acc_col     = dr.get("account",    "Account")
-    time_col    = dr.get("time",       "Time")
-    version_col = dr.get("version",    "Version")
-    entity_col  = dr.get("entity",     "Department")
-    comm_col    = dr.get("commentary", "")
+    if not raw:
+        return [], {}
+
+    headers = list(raw[0].keys())
+    configured = fc.dimension_roles or {}
+    roles = _infer_roles(headers, raw, configured)
+
+    acc_col     = roles.get("account",    "")
+    time_col    = roles.get("time",       "")
+    version_col = roles.get("version",    "")
+    entity_col  = roles.get("entity",     "")
+    comm_col    = roles.get("commentary", "")
 
     actual_member = (fc.actual_version_member or "Actual").lower()
     budget_member = (fc.budget_version_member or "Budget").lower()
 
-    dim_cols = {acc_col, time_col, version_col, entity_col, comm_col}
+    # Columns that play a known dimension role (not measure candidates)
+    role_cols = {c for c in (acc_col, time_col, version_col, entity_col, comm_col) if c}
 
-    # pivot: key = "account|entity|time"  →  {actual, budget, commentary}
+    # Columns that are neither a role col nor the measure — extra context dimensions
+    def _is_measure(col: str, sample_vals: list) -> bool:
+        numeric = sum(1 for v in sample_vals if _safe_float(v) != 0.0 or str(v).strip() in ("0", "0.0", "0"))
+        return numeric / max(len(sample_vals), 1) > 0.5
+
+    measure_col = None
+    extra_dim_cols: list[str] = []
+    for h in headers:
+        if h in role_cols:
+            continue
+        sample_vals = [r.get(h) for r in raw[:20] if r.get(h) is not None]
+        if measure_col is None and sample_vals and _is_measure(h, sample_vals):
+            measure_col = h
+        else:
+            extra_dim_cols.append(h)
+
+    # pivot: key = all dimension values joined  →  {actual, budget, commentary, dim_context}
     groups: dict[str, dict] = {}
 
     for row in raw:
-        account = str(row.get(acc_col) or "").strip()
-        time    = str(row.get(time_col) or "").strip()
-        entity  = str(row.get(entity_col) or "").strip()
-        version = str(row.get(version_col) or "").strip().lower()
+        account = str(row.get(acc_col) or "").strip() if acc_col else ""
+        time    = str(row.get(time_col) or "").strip() if time_col else ""
+        entity  = str(row.get(entity_col) or "").strip() if entity_col else ""
+        version = str(row.get(version_col) or "").strip().lower() if version_col else ""
 
         if not account:
             continue
 
-        key = f"{account}|{entity}|{time}"
-        g   = groups.setdefault(key, {
-            "account": account, "entity": entity, "time": time,
-            "actual": 0.0, "budget": 0.0, "commentary": None,
+        # Extra dimension values for this row (consistent across versions)
+        extra = {c: str(row.get(c) or "").strip() for c in extra_dim_cols if row.get(c)}
+
+        # Build a stable member key from all dimensions except version
+        key_parts = [account, entity, time] + [extra.get(c, "") for c in extra_dim_cols]
+        key = "|".join(key_parts)
+
+        g = groups.setdefault(key, {
+            "account":     account,
+            "entity":      entity,
+            "time":        time,
+            "actual":      0.0,
+            "budget":      0.0,
+            "commentary":  None,
+            "dim_context": extra,
         })
 
-        # First non-dim column with a parsable numeric value = the measure
-        for col, val in row.items():
-            if col in dim_cols:
-                continue
-            fval = _safe_float(val)
+        if measure_col:
+            fval = _safe_float(row.get(measure_col))
             if version == actual_member:
                 g["actual"] = fval
             elif version == budget_member:
                 g["budget"] = fval
-            break
+        else:
+            # Fall back: first parsable numeric value in any non-role column
+            for col, val in row.items():
+                if col in role_cols:
+                    continue
+                fval = _safe_float(val)
+                if version == actual_member:
+                    g["actual"] = fval
+                elif version == budget_member:
+                    g["budget"] = fval
+                break
 
         if comm_col and row.get(comm_col):
             g["commentary"] = str(row[comm_col]).strip()
@@ -233,9 +345,11 @@ def _map_flat_csv(raw: list[dict], fc) -> tuple[list[dict], dict[str, list[str]]
             "variance_dollars": actual - budget,
             "variance_pct":     (actual - budget) / budget if budget else 0.0,
             "prior_actual":     0.0,
-            "account_type":     "expense",
+            "account_type":     _infer_account_type(g["account"]),
             "human_commentary": g["commentary"],
             "parent_member_id": None,
+            "dim_context":      g["dim_context"],
+            "_dim_roles":       roles,   # carried for write-back
         })
 
     return rows, {}

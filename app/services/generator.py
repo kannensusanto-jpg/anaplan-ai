@@ -10,7 +10,7 @@ from app.services.auth import AnaplanAuthService
 from app.services.config import ClientConfig
 from app.services.materiality import apply_materiality_filter
 from app.services.preview_store import delete_preview, load_preview, save_preview
-from app.services.prompts import build_system_prompt, build_user_prompt
+from app.services.prompts import build_dataset_summary, build_system_prompt, build_user_prompt
 from app.services.tenant_service import get_tenant
 
 client       = anthropic.AsyncAnthropic()
@@ -90,8 +90,10 @@ async def generate_commentary(
     config: ClientConfig,
     rows: list[dict],
     hierarchy: dict[str, list[str]],
+    page_context: dict | None = None,
 ) -> tuple[dict[str, str], dict]:
-    system_prompt = build_system_prompt(config)
+    dataset_summary = build_dataset_summary(rows, page_context)
+    system_prompt   = build_system_prompt(config, dataset_summary)
     results: dict[str, str] = {}
     totals = {
         "input_tokens": 0, "output_tokens": 0,
@@ -101,7 +103,9 @@ async def generate_commentary(
     leaf_rows   = [r for r in rows if r["member_id"] not in hierarchy]
     rollup_rows = [r for r in rows if r["member_id"] in hierarchy]
 
-    leaf_outputs = await asyncio.gather(*[_call_claude(system_prompt, r) for r in leaf_rows])
+    leaf_outputs = await asyncio.gather(
+        *[_call_claude(system_prompt, r, page_context=page_context) for r in leaf_rows]
+    )
     for row, (text, usage) in zip(leaf_rows, leaf_outputs):
         results[row["member_id"]] = text
         _add_usage(totals, usage)
@@ -111,7 +115,7 @@ async def generate_commentary(
         row["child_commentary"] = "\n".join(
             f"- {cid}: {results[cid]}" for cid in child_ids if cid in results
         )
-        text, usage = await _call_claude(system_prompt, row, is_rollup=True)
+        text, usage = await _call_claude(system_prompt, row, is_rollup=True, page_context=page_context)
         results[row["member_id"]] = text
         _add_usage(totals, usage)
 
@@ -119,9 +123,12 @@ async def generate_commentary(
 
 
 async def _call_claude(
-    system_prompt: str, row: dict, is_rollup: bool = False
+    system_prompt: str,
+    row: dict,
+    is_rollup: bool = False,
+    page_context: dict | None = None,
 ) -> tuple[str, dict]:
-    user_content = build_user_prompt(row)
+    user_content = build_user_prompt(row, page_context)
     if is_rollup and row.get("child_commentary"):
         user_content += f"\n\nChild member commentary:\n{row['child_commentary']}"
 

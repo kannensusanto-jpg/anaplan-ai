@@ -82,8 +82,9 @@ async def generate_from_anaplan_form(
     if not rows:
         raise HTTPException(status_code=422, detail="No data returned from Anaplan view")
 
-    config   = await build_client_config(db, form_config, tenant.client_id)
-    filtered = apply_materiality_filter(rows, config)
+    config       = await build_client_config(db, form_config, tenant.client_id)
+    page_context = form_config.page_selectors or {}
+    filtered     = apply_materiality_filter(rows, config)
 
     if not filtered.generate:
         raise HTTPException(
@@ -91,7 +92,9 @@ async def generate_from_anaplan_form(
             detail="All rows were filtered by materiality — nothing to generate",
         )
 
-    commentary, usage = await generate_commentary(config, filtered.generate, hierarchy)
+    commentary, usage = await generate_commentary(
+        config, filtered.generate, hierarchy, page_context=page_context
+    )
 
     rows_with_commentary = [
         {**r, "commentary": commentary.get(r["member_id"], "")}
