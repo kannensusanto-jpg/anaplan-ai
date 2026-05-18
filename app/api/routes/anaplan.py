@@ -93,7 +93,9 @@ async def generate_from_anaplan_form(
         )
 
     commentary, usage = await generate_commentary(
-        config, filtered.generate, hierarchy, page_context=page_context
+        config, filtered.generate, hierarchy,
+        page_context=page_context,
+        all_rows=rows,   # full dataset for summary — includes below-materiality rows
     )
 
     rows_with_commentary = [

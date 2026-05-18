@@ -91,8 +91,10 @@ async def generate_commentary(
     rows: list[dict],
     hierarchy: dict[str, list[str]],
     page_context: dict | None = None,
+    all_rows: list[dict] | None = None,
 ) -> tuple[dict[str, str], dict]:
-    dataset_summary = build_dataset_summary(rows, page_context)
+    # Use the full unfiltered dataset for the summary so totals are accurate
+    dataset_summary = build_dataset_summary(all_rows or rows, page_context)
     system_prompt   = build_system_prompt(config, dataset_summary)
     results: dict[str, str] = {}
     totals = {
