@@ -1,7 +1,8 @@
-let API_KEY        = "";
-let JOB_SOURCE     = "anaplan";
-let ACTIVE_FORM_ID = "";
-let SELECTED_EPM   = "";      // "anaplan" | "excel"
+let API_KEY           = "";
+let JOB_SOURCE        = "anaplan";
+let ACTIVE_FORM_ID    = "";
+let SELECTED_EPM      = "";      // "anaplan" | "excel"
+let EDIT_CONFIG_FORM  = "";      // form_id targeted by the Edit Config file input
 
 const $ = id => document.getElementById(id);
 
@@ -91,6 +92,7 @@ function renderFormList(forms) {
           ? `<button class="btn-sm" onclick="generateFromAnaplanForm('${esc(f.form_id)}')">Generate</button>`
           : `<button class="btn-sm" onclick="openGridUpload('${esc(f.form_id)}', '${esc(f.form_name)}')">Upload &amp; Generate</button>`
         }
+        <button class="btn-sm btn-outline" onclick="openEditConfig('${esc(f.form_id)}')">Edit Config</button>
         <button class="btn-sm btn-danger-sm" onclick="deleteForm('${esc(f.form_id)}')">Remove</button>
       </div>
     </div>
@@ -102,6 +104,37 @@ async function deleteForm(formId) {
   const resp = await apiFetch(`/v1/forms/${encodeURIComponent(formId)}`, { method: "DELETE" });
   if (resp.ok) await loadForms();
   else setStatus("forms-status", "Delete failed", "error");
+}
+
+function openEditConfig(formId) {
+  EDIT_CONFIG_FORM = formId;
+  const input = $("edit-config-file");
+  input.value = "";
+  input.click();
+}
+
+async function submitEditConfig() {
+  const file = $("edit-config-file").files[0];
+  if (!file || !EDIT_CONFIG_FORM) return;
+
+  setStatus("forms-status", `Updating config for form...`);
+
+  const form = new FormData();
+  form.append("file", file);
+
+  const resp = await fetch(`/v1/forms/${encodeURIComponent(EDIT_CONFIG_FORM)}/config`, {
+    method:  "POST",
+    headers: { "X-API-Key": API_KEY },
+    body:    form,
+  });
+
+  if (!resp.ok) {
+    setStatus("forms-status", await errText(resp), "error");
+    return;
+  }
+
+  setStatus("forms-status", "Config updated.", "success");
+  await loadForms();
 }
 
 // ── Add Form panel ────────────────────────────────────────────────────────────

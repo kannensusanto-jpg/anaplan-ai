@@ -107,6 +107,9 @@
 
       <p id="add-form-status" class="status-msg"></p>
       <p id="forms-status" class="status-msg"></p>
+
+      <!-- Shared hidden input for Edit Config uploads -->
+      <input type="file" id="edit-config-file" accept=".xlsx" hidden onchange="submitEditConfig()" />
     </section>
 
     <!-- ── Grid upload sub-flow (Excel-source forms) ─────────────────────── -->

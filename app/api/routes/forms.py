@@ -1,6 +1,6 @@
 from io import BytesIO
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +14,7 @@ from app.models.tenant import Tenant
 from app.models.usage import UsageRecord
 from app.services.auth import AnaplanAuthService
 from app.services.config_profiles import get_profiles_for_client
+from app.services.form_config_parser import parse_form_config_template
 from app.services.form_template import generate_form_config_template
 from app.services.preview_store import delete_preview, load_preview
 
@@ -161,6 +162,46 @@ async def delete_form(
         raise HTTPException(status_code=404, detail="Form config not found")
     await db.delete(form)
     await db.commit()
+
+
+# ── Form config upload (update dimension mapping) ─────────────────────────────
+
+@router.post("/forms/{form_id}/config", response_model=FormConfigOut)
+async def upload_form_config(
+    form_id: str,
+    file: UploadFile = File(...),
+    tenant: Tenant = Depends(get_current_tenant),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Upload a filled Form Config Template to update an existing form's
+    dimension_roles, page_selectors, and other settings.
+    """
+    result = await db.execute(
+        select(FormConfig).where(
+            FormConfig.client_id == tenant.client_id,
+            FormConfig.form_id == form_id,
+        )
+    )
+    form = result.scalar_one_or_none()
+    if not form:
+        raise HTTPException(status_code=404, detail="Form config not found")
+
+    data = await file.read()
+    try:
+        updates = parse_form_config_template(data)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Could not parse template: {exc}")
+
+    if not updates:
+        raise HTTPException(status_code=422, detail="No recognised fields found in template")
+
+    for key, val in updates.items():
+        setattr(form, key, val)
+
+    await db.commit()
+    await db.refresh(form)
+    return form
 
 
 # ── Approve / write-back ───────────────────────────────────────────────────────
