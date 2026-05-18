@@ -48,6 +48,7 @@ async function selectEPM(tool) {
 
   if (tool === "anaplan") {
     $("forms-sub").textContent = "Pick a registered Anaplan form to generate AI commentary.";
+    show("form-template-btn");
     show("forms-section");
     show("anaplan-section");
     await loadAnaplanViews();
