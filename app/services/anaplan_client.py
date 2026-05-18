@@ -175,11 +175,12 @@ def _map_flat_csv(raw: list[dict], fc) -> tuple[list[dict], dict[str, list[str]]
     pivoted standard format: one row per (account, entity, time) with
     both actual and budget values.
     """
-    acc_col     = fc.dim_account    or "Account"
-    time_col    = fc.dim_time       or "Time"
-    version_col = fc.dim_version    or "Version"
-    entity_col  = fc.dim_entity     or "Department"
-    comm_col    = fc.dim_commentary or ""
+    dr          = fc.dimension_roles or {}
+    acc_col     = dr.get("account",    "Account")
+    time_col    = dr.get("time",       "Time")
+    version_col = dr.get("version",    "Version")
+    entity_col  = dr.get("entity",     "Department")
+    comm_col    = dr.get("commentary", "")
 
     actual_member = (fc.actual_version_member or "Actual").lower()
     budget_member = (fc.budget_version_member or "Budget").lower()

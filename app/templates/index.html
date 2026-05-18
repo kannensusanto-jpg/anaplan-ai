@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Anaplan AI Commentary</title>
+  <title>AI Commentary</title>
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
   <header>
     <div class="header-inner">
       <span class="logo">AI Commentary</span>
-      <span class="tag">FP&amp;A · Anaplan</span>
+      <span class="tag">FP&amp;A · EPM</span>
     </div>
   </header>
 
@@ -25,55 +25,76 @@
       <p id="auth-status" class="status-msg"></p>
     </section>
 
-    <!-- ── Form Picker ─────────────────────────────────────────────────────── -->
+    <!-- ── EPM Tool Selector ──────────────────────────────────────────────── -->
+    <section class="card hidden" id="epm-section">
+      <h2>Select your EPM tool</h2>
+      <p class="sub">Choose the system you use to manage your financial data.</p>
+      <div class="epm-grid">
+        <button class="epm-card" onclick="selectEPM('anaplan')">
+          <span class="epm-name">Anaplan</span>
+        </button>
+        <button class="epm-card" onclick="selectEPM('excel')">
+          <span class="epm-name">Excel</span>
+          <span class="epm-sub">Any EPM export</span>
+        </button>
+        <button class="epm-card" disabled>
+          <span class="epm-name">Oracle EPM</span>
+          <span class="epm-badge-soon">Coming soon</span>
+        </button>
+        <button class="epm-card" disabled>
+          <span class="epm-name">SAP BPC</span>
+          <span class="epm-badge-soon">Coming soon</span>
+        </button>
+        <button class="epm-card" disabled>
+          <span class="epm-name">OneStream</span>
+          <span class="epm-badge-soon">Coming soon</span>
+        </button>
+        <button class="epm-card" disabled>
+          <span class="epm-name">Workday Adaptive</span>
+          <span class="epm-badge-soon">Coming soon</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- ── Forms ──────────────────────────────────────────────────────────── -->
     <section class="card hidden" id="forms-section">
       <div class="section-header">
         <div>
           <h2>Forms</h2>
-          <p class="sub">Pick a registered form to generate AI commentary.</p>
+          <p class="sub" id="forms-sub">Pick a registered form to generate AI commentary.</p>
         </div>
         <div class="row">
-          <a href="/v1/forms/config-template" class="btn-outline btn-sm" download>Form Config Template</a>
+          <a id="form-template-btn" href="/v1/forms/config-template" class="btn-outline btn-sm hidden" download>Form Config Template</a>
           <button class="btn-outline btn-sm" onclick="toggleAddForm()">+ Add Form</button>
         </div>
       </div>
 
       <div id="form-list" class="form-list"></div>
 
-      <!-- Add form panel -->
+      <!-- Add form panel — content shown based on selected EPM -->
       <div id="add-form-panel" class="add-form-panel hidden">
-        <div class="add-form-tabs">
-          <button class="tab-btn active" onclick="switchAddTab('anaplan')">From Anaplan View</button>
-          <button class="tab-btn" onclick="switchAddTab('excel')">Upload Form Config</button>
-        </div>
 
-        <!-- Anaplan tab -->
-        <div id="tab-anaplan" class="tab-pane">
+        <!-- Anaplan -->
+        <div id="add-form-anaplan" class="hidden">
           <p class="sub" style="margin-bottom:.75rem">
-            Select an Anaplan view to register. You can edit dimension mappings via the Form Config Template.
+            Select an Anaplan view to register. Dimension mappings can be edited via the Form Config Template.
           </p>
           <div class="row">
             <select id="anaplan-views-select" style="flex:1;min-width:220px">
               <option value="">— select a view —</option>
             </select>
-            <select id="anaplan-profile-select" style="width:180px">
-              <option value="P&L">P&amp;L</option>
-              <option value="Headcount">Headcount</option>
-              <option value="CapEx">CapEx</option>
-              <option value="Balance Sheet">Balance Sheet</option>
-              <option value="Cash Flow">Cash Flow</option>
-            </select>
+            <select id="anaplan-profile-select" style="width:180px"></select>
             <button onclick="registerAnaplanView()">Register</button>
           </div>
-          <p id="add-form-status" class="status-msg"></p>
         </div>
 
-        <!-- Excel tab -->
-        <div id="tab-excel" class="tab-pane hidden">
+        <!-- Excel -->
+        <div id="add-form-excel" class="hidden">
           <p class="sub" style="margin-bottom:.75rem">
             Download the Form Config Template, fill it in, then upload here to register the form.
           </p>
           <div class="row">
+            <a href="/v1/forms/config-template" class="btn-outline btn-sm" download>Download Template</a>
             <label class="btn-outline file-label btn-sm">
               Upload Form Config
               <input type="file" id="form-config-file" accept=".xlsx" onchange="uploadFormConfig()" hidden />
@@ -81,15 +102,17 @@
           </div>
           <p id="form-config-status" class="status-msg"></p>
         </div>
+
       </div>
 
+      <p id="add-form-status" class="status-msg"></p>
       <p id="forms-status" class="status-msg"></p>
     </section>
 
-    <!-- ── Grid upload (for Excel-source forms) ───────────────────────────── -->
+    <!-- ── Grid upload sub-flow (Excel-source forms) ─────────────────────── -->
     <section class="card hidden" id="grid-upload-section">
-      <h2 id="grid-upload-title">Upload Grid — <span id="grid-form-name"></span></h2>
-      <p class="sub">Upload the Anaplan grid export for this form.</p>
+      <h2>Upload Grid — <span id="grid-form-name"></span></h2>
+      <p class="sub">Upload the grid export for this form.</p>
       <div class="row">
         <label class="btn-outline file-label">
           Choose Grid File
@@ -100,22 +123,22 @@
       <div id="grid-status" class="status-msg"></div>
     </section>
 
-    <!-- ── Legacy: Anaplan module workflow ────────────────────────────────── -->
+    <!-- ── Quick Generate — Anaplan only ─────────────────────────────────── -->
     <section class="card hidden" id="anaplan-section">
-      <h2>Quick Generate (Anaplan Module)</h2>
-      <p class="sub">Reads your globally-configured Anaplan module directly.</p>
+      <h2>Quick Generate</h2>
+      <p class="sub">Reads your globally-configured Anaplan module directly — no form registration needed.</p>
       <button onclick="triggerGenerate()">Generate</button>
       <div id="generate-status" class="status-msg"></div>
     </section>
 
-    <!-- ── Legacy: Flat template upload ──────────────────────────────────── -->
+    <!-- ── Flat Template Upload — Excel only ─────────────────────────────── -->
     <section class="card hidden" id="upload-section">
       <h2>Flat Template Upload</h2>
-      <p class="sub">Upload the standard flat commentary template.</p>
+      <p class="sub">No form registration needed. Download the template, fill in your data, upload to generate commentary.</p>
       <div class="row">
         <a href="/v1/upload/template" class="btn-outline" download>Download Template</a>
         <label class="btn-outline file-label">
-          Choose File
+          Upload &amp; Generate
           <input type="file" id="excel-file" accept=".xlsx" onchange="uploadFile()" hidden />
         </label>
       </div>

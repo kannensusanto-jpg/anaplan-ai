@@ -163,6 +163,37 @@ button:hover { background: #163d60; }
 
 .empty-msg { font-size: .87rem; color: #718096; padding: .5rem 0; }
 
+/* ── EPM selector ─────────────────────────────────────────────────────────── */
+.epm-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: .75rem;
+  margin-top: .75rem;
+}
+@media (max-width: 600px) { .epm-grid { grid-template-columns: repeat(2, 1fr); } }
+
+.epm-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: .3rem;
+  padding: 1rem .75rem;
+  border: 2px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+  text-align: center;
+}
+.epm-card:hover:not(:disabled) { border-color: #1F4E79; background: #ebf4ff; }
+.epm-card.selected             { border-color: #1F4E79; background: #ebf4ff; }
+.epm-card:disabled             { opacity: .4; cursor: not-allowed; }
+.epm-name       { font-weight: 600; font-size: .92rem; color: #1a202c; }
+.epm-sub        { font-size: .76rem; color: #718096; }
+.epm-badge-soon { font-size: .7rem; background: #edf2f7; color: #718096;
+                  padding: .15rem .5rem; border-radius: 20px; margin-top: .1rem; }
+
 /* ── Add form panel ───────────────────────────────────────────────────────── */
 .add-form-panel {
   margin-top: 1.25rem;

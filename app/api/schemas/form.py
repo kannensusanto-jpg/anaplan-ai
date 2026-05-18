@@ -31,12 +31,10 @@ class FormConfigIn(BaseModel):
 
     config_overrides: dict = {}
 
-    # Anaplan dimension names
-    dim_account:    str | None = None
-    dim_time:       str | None = None
-    dim_version:    str | None = None
-    dim_entity:     str | None = None
-    dim_commentary: str | None = None
+    # Maps semantic role → Anaplan dimension name.
+    # Known roles: "account", "time", "version", "entity", "commentary".
+    # Any extra dimensions present on the form can be added as additional keys.
+    dimension_roles: dict = {}
 
     actual_version_member: str = "Actual"
     budget_version_member: str = "Budget"
@@ -44,6 +42,7 @@ class FormConfigIn(BaseModel):
     # Excel grid specifics
     header_rows:    int = 1
     account_col:    int = 0
+    entity_col:     int | None = None   # column holding cost centre / entity per row
     page_selectors: dict = {}
     column_mapping: dict = {}
 

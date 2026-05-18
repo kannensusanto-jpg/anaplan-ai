@@ -136,7 +136,7 @@ def _should_skip_sheet(sheet_name: str, fc: FormConfig) -> bool:
 def _resolve_entity(sheet_name: str, fc: FormConfig) -> str:
     """Determine entity (cost-centre) label for this sheet."""
     if fc.page_selectors:
-        entity_dim = fc.dim_entity or ""
+        entity_dim = (fc.dimension_roles or {}).get("entity", "")
         if entity_dim and entity_dim in fc.page_selectors:
             return fc.page_selectors[entity_dim]
         return next(iter(fc.page_selectors.values()))
@@ -146,7 +146,7 @@ def _resolve_entity(sheet_name: str, fc: FormConfig) -> str:
 def _resolve_default_time(fc: FormConfig) -> str:
     """Return a time-period label if it's fixed via page selectors."""
     if fc.page_selectors:
-        time_dim = fc.dim_time or ""
+        time_dim = (fc.dimension_roles or {}).get("time", "")
         if time_dim and time_dim in fc.page_selectors:
             return fc.page_selectors[time_dim]
     return ""
@@ -215,14 +215,15 @@ def _parse_sheet(
     specs: dict[int, _ColSpec],
     fc: FormConfig,
 ) -> tuple[list[dict], dict[str, list[str]]]:
-    data_start = fc.header_rows + 1  # 1-based
-    acc_col    = fc.account_col       # 0-based
+    data_start  = fc.header_rows + 1  # 1-based
+    acc_col     = fc.account_col       # 0-based
+    ent_col     = fc.entity_col        # 0-based or None
 
     actual_ver  = (fc.actual_version_member or "Actual").lower()
     budget_ver  = (fc.budget_version_member or "Budget").lower()
 
     # Pass 1: collect raw entries with indent level
-    raw: list[dict] = []   # {indent, account, time_period→{actual, budget, …}}
+    raw: list[dict] = []   # {indent, account, entity, time_period→{actual, budget, …}}
 
     for sheet_row_idx, row_cells in enumerate(
         ws.iter_rows(min_row=data_start), start=data_start

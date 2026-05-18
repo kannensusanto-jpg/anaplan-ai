@@ -35,12 +35,11 @@ class FormConfig(Base):
     # Per-form config overrides (any key from ConfigProfile can be overridden)
     config_overrides = Column(JSON, default=dict)
 
-    # Dimension role mapping (Anaplan dimension names)
-    dim_account    = Column(String, nullable=True)
-    dim_time       = Column(String, nullable=True)
-    dim_version    = Column(String, nullable=True)
-    dim_entity     = Column(String, nullable=True)
-    dim_commentary = Column(String, nullable=True)
+    # Maps semantic role → Anaplan dimension name.
+    # Known roles: "account", "time", "version", "entity", "commentary".
+    # Add any other dimension present on the form (e.g. "product", "region").
+    # Fixed-value context dimensions go in page_selectors.
+    dimension_roles = Column(JSON, default=dict)
 
     # Version member names within the version dimension
     actual_version_member = Column(String, default="Actual")
@@ -49,6 +48,7 @@ class FormConfig(Base):
     # Excel grid specifics
     header_rows     = Column(Integer, default=1)
     account_col     = Column(Integer, default=0)      # 0-based column index
+    entity_col      = Column(Integer, nullable=True)   # 0-based; None = use page_selectors/tab name
     page_selectors  = Column(JSON, default=dict)       # {"Cost Center": "Dept A"}
     column_mapping  = Column(JSON, default=dict)       # see grid_parser for format
 

@@ -1,7 +1,7 @@
-let API_KEY         = "";
-let JOB_SOURCE      = "anaplan"; // "anaplan" | "upload" | "grid" | "anaplan-form"
-let ACTIVE_FORM_ID  = "";        // form_id for the currently selected grid/anaplan-form
-let ADD_FORM_TAB    = "anaplan"; // "anaplan" | "excel"
+let API_KEY        = "";
+let JOB_SOURCE     = "anaplan";
+let ACTIVE_FORM_ID = "";
+let SELECTED_EPM   = "";      // "anaplan" | "excel"
 
 const $ = id => document.getElementById(id);
 
@@ -21,14 +21,43 @@ async function verifyKey() {
   if (resp.ok) {
     const data = await resp.json();
     setStatus("auth-status", `Authenticated as ${data.company_name}`, "success");
-    show("forms-section");
-    show("anaplan-section");
-    show("upload-section");
-    await loadForms();
-    await loadAnaplanViews();
+    show("epm-section");
     await loadProfileOptions();
   } else {
     setStatus("auth-status", "Invalid API key", "error");
+  }
+}
+
+// ── EPM Tool Selection ────────────────────────────────────────────────────────
+
+async function selectEPM(tool) {
+  SELECTED_EPM = tool;
+
+  // Highlight selected card
+  document.querySelectorAll(".epm-card").forEach(c => c.classList.remove("selected"));
+  event.currentTarget.classList.add("selected");
+
+  // Reset sections
+  hide("forms-section");
+  hide("anaplan-section");
+  hide("upload-section");
+  hide("add-form-panel");
+  hide("add-form-anaplan");
+  hide("add-form-excel");
+  hide("form-template-btn");
+
+  if (tool === "anaplan") {
+    $("forms-sub").textContent = "Pick a registered Anaplan form to generate AI commentary.";
+    show("forms-section");
+    show("anaplan-section");
+    await loadAnaplanViews();
+    await loadForms();
+  } else if (tool === "excel") {
+    $("forms-sub").textContent = "Pick a registered Excel form to generate AI commentary.";
+    show("form-template-btn");
+    show("forms-section");
+    show("upload-section");
+    await loadForms();
   }
 }
 
@@ -37,7 +66,10 @@ async function verifyKey() {
 async function loadForms() {
   const resp = await apiFetch("/v1/forms");
   if (!resp.ok) { setStatus("forms-status", "Could not load forms", "error"); return; }
-  const forms = await resp.json();
+  const all = await resp.json();
+  const forms = all.filter(f =>
+    SELECTED_EPM === "anaplan" ? f.form_source === "anaplan" : f.form_source === "excel"
+  );
   renderFormList(forms);
 }
 
@@ -51,7 +83,6 @@ function renderFormList(forms) {
     <div class="form-card" id="fcard-${f.form_id}">
       <div class="form-card-info">
         <span class="form-name">${escHtml(f.form_name)}</span>
-        <span class="badge badge-source">${f.form_source === "anaplan" ? "Anaplan" : "Excel"}</span>
         <span class="badge badge-profile">${escHtml(f.profile_name)}</span>
       </div>
       <div class="form-card-actions">
@@ -76,20 +107,19 @@ async function deleteForm(formId) {
 
 function toggleAddForm() {
   const panel = $("add-form-panel");
+  const isHidden = panel.classList.contains("hidden");
   panel.classList.toggle("hidden");
-}
-
-function switchAddTab(tab) {
-  ADD_FORM_TAB = tab;
-  document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
-  event.target.classList.add("active");
-  $("tab-anaplan").classList.toggle("hidden", tab !== "anaplan");
-  $("tab-excel").classList.toggle("hidden", tab !== "excel");
+  if (isHidden) {
+    hide("add-form-anaplan");
+    hide("add-form-excel");
+    if (SELECTED_EPM === "anaplan") show("add-form-anaplan");
+    else if (SELECTED_EPM === "excel") show("add-form-excel");
+  }
 }
 
 async function loadAnaplanViews() {
   const resp = await apiFetch("/v1/anaplan/views");
-  if (!resp.ok) return;  // Anaplan may not be configured — fail silently
+  if (!resp.ok) return;
   const { views } = await resp.json();
   const sel = $("anaplan-views-select");
   sel.innerHTML = '<option value="">— select a view —</option>' +
@@ -139,12 +169,8 @@ async function uploadFormConfig() {
   const file = $("form-config-file").files[0];
   if (!file) return;
   setStatus("form-config-status", "Parsing form config...");
-
-  // Parse the Form Setup Excel client-side is complex — instead, parse server-side.
-  // For Phase 3, we send the raw file to a parse-and-register endpoint.
-  // That endpoint is POST /v1/forms/upload-config (future). For now show a message.
   setStatus("form-config-status",
-    "Use the API directly to register a form config, or use the Anaplan tab to discover views.",
+    "Use the API directly to register a form config, or download and fill in the Form Config Template above.",
     "error");
 }
 
@@ -214,7 +240,7 @@ async function uploadGrid() {
   await loadPreview();
 }
 
-// ── Legacy: Anaplan module generate ──────────────────────────────────────────
+// ── Quick Generate (Anaplan module — legacy) ──────────────────────────────────
 
 async function triggerGenerate() {
   setStatus("generate-status", "Queuing job...");
@@ -245,7 +271,7 @@ async function pollJob(job_id) {
   }, 3000);
 }
 
-// ── Legacy: flat Excel upload ─────────────────────────────────────────────────
+// ── Flat Template Upload (Excel — no form registration needed) ────────────────
 
 async function uploadFile() {
   const file = $("excel-file").files[0];
@@ -326,7 +352,6 @@ function renderPreview(preview) {
 // ── Preview actions ───────────────────────────────────────────────────────────
 
 async function exportPreview() {
-  // All sources write to the same Redis preview key — one export endpoint works for all.
   const resp = await apiFetch("/v1/jobs/preview/export");
   if (!resp.ok) return;
   _download(await resp.blob(), "commentary_preview.xlsx");
@@ -345,7 +370,6 @@ async function rejectPreview() {
 async function approvePreview() {
   setStatus("approve-status", "Approving...");
 
-  // ── Flat Excel upload: re-upload original to get annotated file back ──────
   if (JOB_SOURCE === "upload") {
     const file = $("excel-file").files[0];
     if (!file) {
@@ -366,22 +390,15 @@ async function approvePreview() {
     return;
   }
 
-  // ── Form-based (grid upload or Anaplan-form): write back via form config ──
   if (JOB_SOURCE === "grid" || JOB_SOURCE === "anaplan-form") {
     const resp = await apiFetch("/v1/forms/approve", { method: "POST" });
-    if (!resp.ok) {
-      const detail = await errText(resp);
-      // If no import_action_id is configured, surface a clear message
-      setStatus("approve-status", detail, "error");
-      return;
-    }
+    if (!resp.ok) { setStatus("approve-status", await errText(resp), "error"); return; }
     hide("preview-section");
     setStatus("forms-status", "Commentary written to Anaplan.", "success");
     await loadForms();
     return;
   }
 
-  // ── Legacy Anaplan module path: queue write job via ARQ ──────────────────
   const resp = await apiFetch("/v1/jobs/approve", { method: "POST" });
   if (!resp.ok) { setStatus("approve-status", await errText(resp), "error"); return; }
   const { job_id } = await resp.json();
