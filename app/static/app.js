@@ -31,14 +31,10 @@ async function verifyKey() {
 
 // ── EPM Tool Selection ────────────────────────────────────────────────────────
 
-async function selectEPM(tool) {
+async function selectEPM(evt, tool) {
   SELECTED_EPM = tool;
 
-  // Highlight selected card
-  document.querySelectorAll(".epm-card").forEach(c => c.classList.remove("selected"));
-  event.currentTarget.classList.add("selected");
-
-  // Reset sections
+  // Reset sections first — must happen before anything that could throw
   hide("forms-section");
   hide("anaplan-section");
   hide("upload-section");
@@ -46,6 +42,12 @@ async function selectEPM(tool) {
   hide("add-form-anaplan");
   hide("add-form-excel");
   hide("form-template-btn");
+  setStatus("add-form-status", "");
+  setStatus("forms-status", "");
+
+  // Highlight selected card
+  document.querySelectorAll(".epm-card").forEach(c => c.classList.remove("selected"));
+  if (evt && evt.currentTarget) evt.currentTarget.classList.add("selected");
 
   if (tool === "anaplan") {
     $("forms-sub").textContent = "Pick a registered Anaplan form to generate AI commentary.";
